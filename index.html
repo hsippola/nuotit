@@ -61,13 +61,18 @@
 
     <div id="tap-hint" class="tap-hint" hidden>
       <div class="hint-zone"><span>‹</span>Edellinen sivu</div>
-      <div class="hint-zone mid">Napauta keskeltä<br>valikko</div>
+      <div class="hint-zone mid">Napauta: valikko<br><br>Kaksoisnapauta tai<br>nipistä: zoomaa</div>
       <div class="hint-zone"><span>›</span>Seuraava sivu</div>
     </div>
 
     <header class="v-bar v-top">
       <button class="v-btn" id="v-back" aria-label="Takaisin kirjastoon">‹ Kirjasto</button>
       <div class="v-title" id="v-title"></div>
+      <div class="v-zoom" role="group" aria-label="Zoomaus">
+        <button class="v-btn" id="v-zoom-out" aria-label="Loitonna">−</button>
+        <button class="v-btn" id="v-zoom-label" title="Palauta koko sivu">100 %</button>
+        <button class="v-btn" id="v-zoom-in" aria-label="Lähennä">+</button>
+      </div>
       <button class="v-btn" id="v-full" title="Koko näyttö" aria-label="Koko näyttö">⛶</button>
     </header>
     <footer class="v-bar v-bottom">

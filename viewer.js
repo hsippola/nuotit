@@ -1,5 +1,8 @@
-// PDF-katselin: yksi sivu kerrallaan, sivunvaihto napauttamalla reunoja,
-// pyyhkäisemällä tai näppäimistöllä / sivunkääntöpolkimella.
+// PDF-katselin: yksi sivu kerrallaan.
+// - Sivunvaihto: napauta reunoja, pyyhkäise tai käytä näppäimistöä / sivunkääntöpoljinta.
+// - Zoomaus: nipistä kahdella sormella, kaksoisnapauta keskeltä, valikon −/+ tai Ctrl+rulla.
+//   Zoomattuna sivua siirretään yhdellä sormella vetämällä, ja reunan napautus
+//   vierittää ensin sivua alas/ylös ennen kuin sivu vaihtuu.
 
 import * as pdfjsLib from './vendor/pdf.min.mjs';
 
@@ -7,12 +10,22 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.mjs', 
 
 const HINT_KEY = 'nuotit.hintShown';
 const EDGE = 0.33;          // reunavyöhykkeen osuus leveydestä
-const CACHE_MAX = 6;        // valmiiksi piirrettyjä sivuja muistissa
+const CACHE_MAX = 4;        // valmiiksi piirrettyjä sivuja muistissa
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
+const ZOOM_STEP = 1.25;
+const MAX_PIXELS = 12e6;    // iOS rajoittaa canvasin kokoa (~16 Mpx); pysytään alle
+const MARGIN = 4;           // reunus sivun ympärillä (px)
+const DOUBLE_TAP_MS = 280;
+const SCROLL_PART = 0.85;   // kuinka suuri osa näkymästä vieritetään kerralla
 
 const prefs = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* ei tallennusta */ } },
 };
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const clampZoom = (z) => clamp(Number(z) || 1, MIN_ZOOM, MAX_ZOOM);
 
 /** Lukee PDF:n sivumäärän ja piirtää ensimmäisestä sivusta pikkukuvan. */
 export async function analyzePdf(data) {
@@ -37,9 +50,10 @@ export async function analyzePdf(data) {
 }
 
 export class Viewer {
-  constructor({ onBack, onPage, onClosed }) {
+  constructor({ onBack, onPage, onZoom, onClosed }) {
     this.onBack = onBack;
     this.onPage = onPage;
+    this.onZoom = onZoom;
     this.onClosed = onClosed;
     this.el = document.getElementById('viewer');
     this.stage = document.getElementById('stage');
@@ -47,6 +61,7 @@ export class Viewer {
     this.pageEl = document.getElementById('v-page');
     this.slider = document.getElementById('v-slider');
     this.fullBtn = document.getElementById('v-full');
+    this.zoomLabel = document.getElementById('v-zoom-label');
     this.msgEl = document.getElementById('v-msg');
     this.hintEl = document.getElementById('tap-hint');
 
@@ -55,8 +70,16 @@ export class Viewer {
     this.page = 1;
     this.count = 0;
     this.cache = new Map();
+    this.wanted = new Set();
     this.renderSeq = 0;
     this.wakeLock = null;
+
+    // Näkymän tila: zoom-kerroin ja sivun vasemman yläkulman paikka näkymässä.
+    this.zoom = 1;
+    this.x = 0;
+    this.y = 0;
+    this.canvas = null;     // näkyvä sivu
+    this.align = 'top';     // mihin kohtaan uusi sivu asetetaan ('top' | 'bottom' | null = pidä paikka)
 
     this.#bind();
   }
@@ -76,13 +99,18 @@ export class Viewer {
     this.pdf = await pdfjsLib.getDocument({ data }).promise;
     this.count = this.pdf.numPages;
     this.page = Math.min(Math.max(1, score.lastPage || 1), this.count);
+    this.zoom = clampZoom(score.zoom);
+    this.x = 0;
+    this.y = 0;
+    this.align = 'top';
     this.slider.max = String(this.count);
     this.slider.disabled = this.count < 2;
+    this.#updateZoomLabel();
 
     if (!prefs.get(HINT_KEY)) {
       prefs.set(HINT_KEY, '1');
       this.hintEl.hidden = false;
-      setTimeout(() => { this.hintEl.hidden = true; }, 3600);
+      setTimeout(() => { this.hintEl.hidden = true; }, 4200);
       this.#setUI(false);
     } else {
       this.#setUI(true, 2500);
@@ -95,8 +123,11 @@ export class Viewer {
     this.renderSeq++;
     document.removeEventListener('keydown', this.onKey);
     clearTimeout(this.uiTimer);
+    clearTimeout(this.tapTimer);
+    clearTimeout(this.sharpenTimer);
     this.#clearCache();
     this.stage.replaceChildren();
+    this.canvas = null;
     this.hintEl.hidden = true;
     if (this.pdf) { this.pdf.destroy(); this.pdf = null; }
     if (this.wakeLock) { this.wakeLock.release().catch(() => {}); this.wakeLock = null; }
@@ -107,17 +138,106 @@ export class Viewer {
     if (!silent) this.onClosed?.();
   }
 
-  next() { this.goTo(this.page + 1); }
-  prev() { this.goTo(this.page - 1); }
+  // ---------- Sivunvaihto ----------
 
-  goTo(n) {
+  /** Seuraava: zoomattuna vieritetään ensin sivun loppuun, sitten vaihdetaan sivu. */
+  next() {
+    if (this.#scrollStep(1)) return;
+    this.goTo(this.page + 1, 'top');
+  }
+
+  /** Edellinen: zoomattuna vieritetään ensin sivun alkuun, sitten edellisen sivun loppuun. */
+  prev() {
+    if (this.#scrollStep(-1)) return;
+    this.goTo(this.page - 1, 'bottom');
+  }
+
+  goTo(n, align = 'top') {
     if (!this.pdf) return;
     if (n > this.count) { this.#msg('Viimeinen sivu'); return; }
-    n = Math.max(1, n);
-    if (n === this.page) { this.#msg('Ensimmäinen sivu'); return; }
+    if (n < 1) { this.#msg('Ensimmäinen sivu'); return; }
+    if (n === this.page) return;
     this.page = n;
+    this.align = align;
     this.render();
     this.onPage?.(n);
+  }
+
+  #scrollStep(dir) {
+    if (!this.canvas) return false;
+    const { H } = this.#view();
+    const dh = this.canvas.fitH * this.zoom;
+    if (dh <= H + 1) return false;
+    const minY = H - dh;
+    if (dir > 0 && this.y <= minY + 1) return false;
+    if (dir < 0 && this.y >= -1) return false;
+    this.y = clamp(this.y - dir * H * SCROLL_PART, minY, 0);
+    this.#apply(true);
+    return true;
+  }
+
+  // ---------- Zoomaus ----------
+
+  /** Zoomaa niin, että näkymän piste (cx, cy) pysyy paikallaan. */
+  zoomAt(z, cx, cy, animate = false) {
+    if (!this.canvas) return;
+    z = clampZoom(z);
+    const px = (cx - this.x) / this.zoom;
+    const py = (cy - this.y) / this.zoom;
+    this.zoom = z;
+    this.x = cx - px * z;
+    this.y = cy - py * z;
+    this.#apply(animate);
+    this.#zoomChanged();
+  }
+
+  zoomBy(factor) {
+    const { W, H } = this.#view();
+    this.zoomAt(this.zoom * factor, W / 2, H / 2, true);
+  }
+
+  resetZoom() {
+    const { W, H } = this.#view();
+    this.zoomAt(1, W / 2, H / 2, true);
+  }
+
+  #zoomChanged() {
+    this.#updateZoomLabel();
+    this.onZoom?.(this.zoom);
+    // Piirretään sivu terävämmäksi, kun zoomaus on hetken pysynyt paikallaan.
+    clearTimeout(this.sharpenTimer);
+    this.sharpenTimer = setTimeout(() => {
+      if (this.canvas && this.canvas.renderZoom !== this.#renderZoom()) {
+        this.align = null;
+        this.render();
+      }
+    }, 250);
+  }
+
+  #updateZoomLabel() {
+    this.zoomLabel.textContent = `${Math.round(this.zoom * 100)} %`;
+  }
+
+  /** Piirtotarkkuus pyöristetään puolikkaisiin, ettei jokainen pieni muutos piirrä uudelleen. */
+  #renderZoom() {
+    return this.zoom <= 1.01 ? 1 : Math.min(MAX_ZOOM, Math.ceil(this.zoom * 2) / 2);
+  }
+
+  /** Rajaa paikan niin, ettei sivu karkaa näkyvistä; pienempi kuin näkymä → keskitetään. */
+  #clampPosition() {
+    if (!this.canvas) return;
+    const { W, H } = this.#view();
+    const dw = this.canvas.fitW * this.zoom;
+    const dh = this.canvas.fitH * this.zoom;
+    this.x = dw <= W ? (W - dw) / 2 : clamp(this.x, W - dw, 0);
+    this.y = dh <= H ? (H - dh) / 2 : clamp(this.y, H - dh, 0);
+  }
+
+  #apply(animate = false) {
+    if (!this.canvas) return;
+    this.#clampPosition();
+    this.canvas.classList.toggle('animating', animate);
+    this.canvas.style.transform = `translate3d(${this.x}px, ${this.y}px, 0) scale(${this.zoom})`;
   }
 
   // ---------- Piirtäminen ----------
@@ -125,59 +245,80 @@ export class Viewer {
   async render() {
     if (!this.pdf) return;
     const seq = ++this.renderSeq;
-    const w = Math.max(50, this.stage.clientWidth - 8);
-    const h = Math.max(50, this.stage.clientHeight - 8);
+    const { W, H } = this.#view();
+    const rz = this.#renderZoom();
     this.#updateIndicator();
+
+    const neighbours = [this.page + 1, this.page - 1].filter((n) => n >= 1 && n <= this.count);
+    this.wanted = new Set([this.page, ...neighbours].map((n) => this.#key(n, W, H, rz)));
 
     let canvas;
     try {
-      canvas = await this.#canvas(this.page, w, h);
+      canvas = await this.#canvas(this.page, W, H, rz);
     } catch (err) {
       if (seq === this.renderSeq) { console.error(err); this.#msg('Sivun piirtäminen epäonnistui'); }
       return;
     }
     if (seq !== this.renderSeq) return;
-    this.stage.replaceChildren(canvas);
+    this.#show(canvas);
 
     // Piirretään seuraava ja edellinen sivu valmiiksi, jotta sivu vaihtuu heti.
-    for (const n of [this.page + 1, this.page - 1]) {
+    for (const n of neighbours) {
       if (seq !== this.renderSeq) return;
-      if (n < 1 || n > this.count) continue;
-      try { await this.#canvas(n, w, h); } catch { /* ohitetaan */ }
+      try { await this.#canvas(n, W, H, rz); } catch { /* ohitetaan */ }
     }
   }
 
-  #canvas(n, boxW, boxH) {
-    const key = `${n}|${Math.round(boxW)}x${Math.round(boxH)}`;
+  #show(canvas) {
+    const { H } = this.#view();
+    const old = this.canvas;
+    this.canvas = canvas;
+    if (this.align === 'top') this.y = 0;
+    if (this.align === 'bottom') this.y = H - canvas.fitH * this.zoom;
+    this.align = null;   // null: sama sivu tarkempana → paikka säilyy
+    this.#apply(false);
+    if (old !== canvas) this.stage.replaceChildren(canvas);
+  }
+
+  #view() {
+    return { W: Math.max(50, this.stage.clientWidth), H: Math.max(50, this.stage.clientHeight) };
+  }
+
+  #key(n, W, H, rz) { return `${n}|${Math.round(W)}x${Math.round(H)}|${rz}`; }
+
+  #canvas(n, W, H, rz) {
+    const key = this.#key(n, W, H, rz);
     let entry = this.cache.get(key);
     if (entry) {
       this.cache.delete(key);       // päivitetään LRU-järjestys
       this.cache.set(key, entry);
       return entry.promise;
     }
-    const promise = this.#draw(n, boxW, boxH);
-    entry = { n, promise };
+    const promise = this.#draw(n, W, H, rz);
+    entry = { promise };
     this.cache.set(key, entry);
     promise.catch(() => this.cache.delete(key));
     this.#evict();
     return promise;
   }
 
-  async #draw(n, boxW, boxH) {
+  async #draw(n, W, H, rz) {
     const page = await this.pdf.getPage(n);
     const base = page.getViewport({ scale: 1 });
-    const fit = Math.min(boxW / base.width, boxH / base.height);
+    const fit = Math.min((W - 2 * MARGIN) / base.width, (H - 2 * MARGIN) / base.height);
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    // iOS rajoittaa canvasin kokoa (~16 Mpx); pysytään reilusti alle.
-    let scale = fit * dpr;
+    let scale = fit * rz * dpr;
     const px = base.width * base.height * scale * scale;
-    if (px > 12e6) scale *= Math.sqrt(12e6 / px);
+    if (px > MAX_PIXELS) scale *= Math.sqrt(MAX_PIXELS / px);
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement('canvas');
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
-    canvas.style.width = `${Math.floor(base.width * fit)}px`;
-    canvas.style.height = `${Math.floor(base.height * fit)}px`;
+    canvas.fitW = base.width * fit;
+    canvas.fitH = base.height * fit;
+    canvas.renderZoom = rz;
+    canvas.style.width = `${canvas.fitW}px`;
+    canvas.style.height = `${canvas.fitH}px`;
     canvas.dataset.page = String(n);
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
     return canvas;
@@ -186,7 +327,7 @@ export class Viewer {
   #evict() {
     for (const [key, entry] of this.cache) {
       if (this.cache.size <= CACHE_MAX) break;
-      if (Math.abs(entry.n - this.page) <= 3) continue;   // lähisivut säilytetään
+      if (this.wanted.has(key)) continue;
       this.cache.delete(key);
       entry.promise.then((c) => { if (!c.isConnected) c.width = c.height = 0; }, () => {});
     }
@@ -243,36 +384,155 @@ export class Viewer {
     }
   }
 
-  #bind() {
-    // Napautukset ja pyyhkäisyt
-    let start = null;
-    this.stage.addEventListener('pointerdown', (e) => {
-      if (!e.isPrimary) { start = null; return; }   // toinen sormi → ei sivunvaihtoa
-      start = { x: e.clientX, y: e.clientY, id: e.pointerId };
-    });
-    this.stage.addEventListener('pointercancel', () => { start = null; });
-    this.stage.addEventListener('pointerup', (e) => {
-      const s = start;
-      start = null;
-      if (!s || s.id !== e.pointerId || !this.pdf) return;
-      const dx = e.clientX - s.x;
-      const dy = e.clientY - s.y;
-      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        if (dx < 0) this.next(); else this.prev();
-        this.#setUI(false);
-        return;
+  /** Yksittäinen napautus kohdassa (cx, cy). */
+  #tap(cx, cy) {
+    const { W } = this.#view();
+    const fx = cx / W;
+    if (fx < EDGE) { this.#flash('left'); this.prev(); this.#setUI(false); return; }
+    if (fx > 1 - EDGE) { this.#flash('right'); this.next(); this.#setUI(false); return; }
+
+    // Keskialue: kaksoisnapautus zoomaa, yksittäinen näyttää/piilottaa valikon.
+    const now = performance.now();
+    const last = this.lastTap;
+    if (last && now - last.t < DOUBLE_TAP_MS && Math.hypot(cx - last.x, cy - last.y) < 40) {
+      clearTimeout(this.tapTimer);
+      this.lastTap = null;
+      if (this.zoom > 1.05) {
+        this.zoomAt(1, cx, cy, true);
+      } else {
+        // Leveyden mukaan (vaakatasossa), muuten 2×.
+        const fitWidth = W / this.canvas.fitW;
+        this.zoomAt(fitWidth >= 1.3 ? fitWidth : 2, cx, cy, true);
       }
-      if (Math.hypot(dx, dy) > 12) return;
-      const r = this.el.getBoundingClientRect();
-      const fx = (e.clientX - r.left) / r.width;
-      if (fx < EDGE) { this.#flash('left'); this.prev(); this.#setUI(false); }
-      else if (fx > 1 - EDGE) { this.#flash('right'); this.next(); this.#setUI(false); }
-      else this.#setUI(this.el.classList.contains('ui-hidden'), 4000);
+      return;
+    }
+    this.lastTap = { t: now, x: cx, y: cy };
+    clearTimeout(this.tapTimer);
+    this.tapTimer = setTimeout(() => {
+      this.lastTap = null;
+      this.#setUI(this.el.classList.contains('ui-hidden'), 4000);
+    }, DOUBLE_TAP_MS);
+  }
+
+  #bind() {
+    // ----- Kosketus ja hiiri: napautus, pyyhkäisy, vetäminen, nipistys -----
+    const pts = new Map();
+    let g = null;   // meneillään oleva ele
+    const local = (e) => {
+      const r = this.stage.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    this.stage.addEventListener('pointerdown', (e) => {
+      if (!this.pdf || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      try { this.stage.setPointerCapture(e.pointerId); } catch { /* ei tuettu */ }
+      pts.set(e.pointerId, local(e));
+      if (pts.size === 1) {
+        const p = local(e);
+        g = { type: 'tap', sx: p.x, sy: p.y, x0: this.x, y0: this.y };
+      } else if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        g = {
+          type: 'pinch',
+          d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
+          z0: this.zoom, x0: this.x, y0: this.y,
+        };
+      } else {
+        g = { type: 'none' };
+      }
     });
 
-    // Näppäimistö ja Bluetooth-sivunkääntöpolkimet
+    this.stage.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId) || !g) return;
+      const p = local(e);
+      pts.set(e.pointerId, p);
+
+      if (g.type === 'pinch' && pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        const z = clampZoom(g.z0 * d / g.d0);
+        // Nipistyksen alkukohdan sivupiste seuraa sormien keskipistettä.
+        this.x = mx - (g.mx - g.x0) / g.z0 * z;
+        this.y = my - (g.my - g.y0) / g.z0 * z;
+        this.zoom = z;
+        this.#apply(false);
+        this.#updateZoomLabel();
+        return;
+      }
+
+      if (g.type === 'tap' || g.type === 'pan') {
+        const dx = p.x - g.sx;
+        const dy = p.y - g.sy;
+        if (g.type === 'tap' && Math.hypot(dx, dy) > 10) g.type = this.zoom > 1.01 ? 'pan' : 'swipe';
+        if (g.type === 'pan') {
+          this.x = g.x0 + dx;
+          this.y = g.y0 + dy;
+          this.#apply(false);
+        }
+      }
+    });
+
+    const end = (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const p = local(e);
+      pts.delete(e.pointerId);
+      if (!g) return;
+
+      if (g.type === 'pinch') {
+        // Nipistys päättyy ensimmäisen sormen noustessa; jäljelle jäävä sormi ei tee mitään.
+        this.#zoomChanged();
+        g = pts.size ? { type: 'none' } : null;
+        return;
+      }
+      if (e.type === 'pointercancel' || g.type === 'none' || g.type === 'pan') { g = pts.size ? { type: 'none' } : null; return; }
+
+      const dx = p.x - g.sx;
+      const dy = p.y - g.sy;
+      if (g.type === 'swipe') {
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          if (dx < 0) this.goTo(this.page + 1, 'top'); else this.goTo(this.page - 1, 'top');
+          this.#setUI(false);
+        }
+      } else if (g.type === 'tap') {
+        this.#tap(p.x, p.y);
+      }
+      g = null;
+    };
+    this.stage.addEventListener('pointerup', end);
+    this.stage.addEventListener('pointercancel', end);
+
+    // Safari: estetään koko sivun zoomaus nipistyksellä.
+    this.el.addEventListener('gesturestart', (e) => e.preventDefault());
+
+    // Rulla: Ctrl/⌘ + rulla (tai kosketuslevyn nipistys) zoomaa, pelkkä rulla siirtää zoomattua sivua.
+    this.stage.addEventListener('wheel', (e) => {
+      if (!this.canvas) return;
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.stage.clientHeight : 1;
+      const p = local(e);
+      if (e.ctrlKey || e.metaKey) {
+        const delta = clamp(e.deltaY * unit, -50, 50);   // hiiren pykälä ≈ 25 %, kosketuslevy portaattomasti
+        this.zoomAt(this.zoom * Math.exp(-delta * 0.005), p.x, p.y);
+      } else if (this.zoom > 1.01) {
+        this.x -= e.deltaX * unit;
+        this.y -= e.deltaY * unit;
+        this.#apply(false);
+      }
+    }, { passive: false });
+
+    // ----- Näppäimistö ja Bluetooth-sivunkääntöpolkimet -----
     this.onKey = (e) => {
-      if (e.target instanceof HTMLInputElement || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.target instanceof HTMLInputElement || e.altKey) return;
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl + / Ctrl − / Ctrl 0 zoomaavat nuottia selaimen zoomin sijaan.
+        if (e.key === '+' || e.key === '=') { e.preventDefault(); this.zoomBy(ZOOM_STEP); }
+        else if (e.key === '-') { e.preventDefault(); this.zoomBy(1 / ZOOM_STEP); }
+        else if (e.key === '0') { e.preventDefault(); this.resetZoom(); }
+        return;
+      }
       switch (e.key) {
         case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ': case 'Enter':
           e.preventDefault(); this.next(); break;
@@ -280,22 +540,25 @@ export class Viewer {
           e.preventDefault(); this.prev(); break;
         case 'Home': e.preventDefault(); this.goTo(1); break;
         case 'End': e.preventDefault(); this.goTo(this.count); break;
+        case '+': case '=': e.preventDefault(); this.zoomBy(ZOOM_STEP); break;
+        case '-': e.preventDefault(); this.zoomBy(1 / ZOOM_STEP); break;
+        case '0': e.preventDefault(); this.resetZoom(); break;
         case 'Escape': e.preventDefault(); this.onBack?.(); break;
       }
     };
 
-    // Työkalurivit
+    // ----- Työkalurivit -----
     document.getElementById('v-back').addEventListener('click', () => this.onBack?.());
-    document.getElementById('v-prev').addEventListener('click', () => this.prev());
-    document.getElementById('v-next').addEventListener('click', () => this.next());
+    document.getElementById('v-prev').addEventListener('click', () => this.goTo(this.page - 1, 'top'));
+    document.getElementById('v-next').addEventListener('click', () => this.goTo(this.page + 1, 'top'));
+    document.getElementById('v-zoom-out').addEventListener('click', () => this.zoomBy(1 / ZOOM_STEP));
+    document.getElementById('v-zoom-in').addEventListener('click', () => this.zoomBy(ZOOM_STEP));
+    this.zoomLabel.addEventListener('click', () => this.resetZoom());
     this.slider.addEventListener('input', () => {
       this.pageEl.textContent = `${this.slider.value} / ${this.count}`;
       this.#setUI(true, 4000);
     });
-    this.slider.addEventListener('change', () => {
-      const n = Number(this.slider.value);
-      if (n !== this.page) { this.page = n; this.render(); this.onPage?.(n); }
-    });
+    this.slider.addEventListener('change', () => this.goTo(Number(this.slider.value), 'top'));
     const fsSupported = document.fullscreenEnabled || document.webkitFullscreenEnabled;
     if (!fsSupported) this.fullBtn.hidden = true;
     this.fullBtn.addEventListener('click', () => this.#toggleFullscreen());
@@ -308,7 +571,7 @@ export class Viewer {
     new ResizeObserver(() => {
       if (!this.pdf) return;
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { this.#clearCache(); this.render(); }, 150);
+      resizeTimer = setTimeout(() => { this.#clearCache(); this.align = null; this.render(); }, 150);
     }).observe(this.stage);
 
     document.addEventListener('visibilitychange', () => {

@@ -258,6 +258,11 @@ const viewer = new Viewer({
     viewer.score.lastPage = n;
     saveProgressSoon();
   },
+  onZoom(z) {
+    if (!viewer.score) return;
+    viewer.score.zoom = Math.round(z * 100) / 100;
+    saveProgressSoon();
+  },
   onBack() {
     if (ROUTE.test(location.hash) && history.state?.score) {
       history.back();             // popstate sulkee katselimen

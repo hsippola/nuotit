@@ -158,12 +158,16 @@ button, input, select { font: inherit; color: inherit; }
   overflow: hidden; user-select: none; -webkit-user-select: none;
 }
 .stage {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center; gap: 4px;
+  position: absolute; inset: 0; overflow: hidden;
   touch-action: none;
 }
-.stage canvas { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.4); display: block; }
-.stage .loading { color: #bbb; }
+.stage canvas {
+  position: absolute; left: 0; top: 0; display: block;
+  transform-origin: 0 0; will-change: transform;
+  background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.4);
+}
+.stage canvas.animating { transition: transform .22s ease; }
+.stage .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #bbb; }
 
 .flash {
   position: absolute; top: 0; bottom: 0; width: 22%; pointer-events: none; opacity: 0;
@@ -203,6 +207,9 @@ button, input, select { font: inherit; color: inherit; }
 }
 .v-btn:hover { background: rgba(255,255,255,.2); }
 #v-prev, #v-next { font-size: 1.5rem; }
+.v-zoom { display: flex; gap: 4px; }
+#v-zoom-out, #v-zoom-in { font-size: 1.3rem; }
+#v-zoom-label { min-width: 4.4em; font-variant-numeric: tabular-nums; }
 .v-title { flex: 1; min-width: 0; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #v-slider { flex: 1; min-width: 0; accent-color: #e0b25c; height: 44px; }
 .v-page { min-width: 5.5em; text-align: center; font-variant-numeric: tabular-nums; }
@@ -217,4 +224,6 @@ button, input, select { font: inherit; color: inherit; }
   .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
   #add-btn { padding: .6em .9em; }
   .v-page { min-width: 4.5em; font-size: .9rem; }
+  .v-title { visibility: hidden; }
+  #v-zoom-label { min-width: 3.8em; padding: 0 6px; }
 }

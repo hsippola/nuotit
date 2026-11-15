@@ -11,7 +11,12 @@ Kuoroharrastuksen nuottikirjasto selaimessa. PDF-nuotit tallennetaan laitteelle
 - **Katselin**:
   - napauta **oikeaa reunaa** → seuraava sivu, **vasenta reunaa** → edellinen
   - nuotit näytetään aina yksi sivu kerrallaan, sovitettuna näytölle
-  - napauta **keskeltä** → valikko (takaisin, koko näyttö, sivuliukusäädin)
+  - napauta **keskeltä** → valikko (takaisin, zoomaus −/+, koko näyttö, sivuliukusäädin)
+  - **zoomaus**: nipistä kahdella sormella tai kaksoisnapauta keskeltä (vaakatasossa sivu
+    sovitetaan leveyden mukaan, muuten 2×; uusi kaksoisnapautus palauttaa koko sivun).
+    Tietokoneella Ctrl + rulla tai +/−-näppäimet. Zoomattua sivua siirretään vetämällä.
+  - zoomattuna reunan napautus vierittää ensin sivua alas/ylös ja vaihtaa sivun vasta,
+    kun sivun loppu (tai alku) on näkyvissä. Zoomaus säilyy sivulta toiselle ja muistetaan nuotin mukaan.
   - pyyhkäisy sivuttain vaihtaa myös sivua
   - nuolinäppäimet / PageUp-PageDown / välilyönti → toimii Bluetooth-sivunkääntöpolkimilla
   - näyttö pysyy päällä katselun ajan, ja sovellus muistaa mihin sivuun jäit
