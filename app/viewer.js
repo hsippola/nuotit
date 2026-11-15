@@ -4,9 +4,9 @@
 //   Zoomattuna sivua siirretään yhdellä sormella vetämällä, ja reunan napautus
 //   vierittää ensin sivua alas/ylös ennen kuin sivu vaihtuu.
 
-import * as pdfjsLib from './vendor/pdf.min.mjs';
+import * as pdfjsLib from './vendor/pdf.min.js';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.mjs', import.meta.url).href;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.js', import.meta.url).href;
 
 const HINT_KEY = 'nuotit.hintShown';
 const EDGE = 0.33;          // reunavyöhykkeen osuus leveydestä
@@ -605,7 +605,9 @@ export class Viewer {
       this.#setUI(true, 4000);
     });
     this.slider.addEventListener('change', () => this.goTo(Number(this.slider.value), 'top'));
-    const fsSupported = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+    // Sovelluksessa (Capacitor) koko näytön tila ei ole käytössä, joten painike piilotetaan.
+    const native = window.Capacitor?.isNativePlatform?.() ?? false;
+    const fsSupported = !native && (document.fullscreenEnabled || document.webkitFullscreenEnabled);
     if (!fsSupported) this.fullBtn.hidden = true;
     this.fullBtn.addEventListener('click', () => this.#toggleFullscreen());
     for (const bar of this.el.querySelectorAll('.v-bar')) {

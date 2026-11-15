@@ -1,6 +1,7 @@
 // Service worker: sovellus toimii myös ilman verkkoyhteyttä (esim. kirkossa).
 // Nuotit itse ovat IndexedDB:ssä; tämä välimuistittaa vain sovelluksen tiedostot.
-// Kun julkaiset uuden version, kasvata CACHE-numeroa.
+// GitHubin julkaisu (.github/workflows/pages.yml) vaihtaa CACHE-arvon jokaisella julkaisulla
+// commitin tunnisteeseen, joten asennetut sovellukset päivittyvät ilman käsin tehtävää muutosta.
 
 const CACHE = 'nuotit-v6';
 const ASSETS = [
@@ -15,8 +16,8 @@ const ASSETS = [
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './vendor/pdf.min.mjs',
-  './vendor/pdf.worker.min.mjs',
+  './vendor/pdf.min.js',
+  './vendor/pdf.worker.min.js',
 ];
 
 self.addEventListener('install', (event) => {

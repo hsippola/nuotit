@@ -1,4 +1,5 @@
 // Pieni paikallinen palvelin kehitystä varten: node serve.js [portti]
+// Tarjoilee app-kansion (sama sisältö kuin verkkoversiossa ja Android-sovelluksessa).
 // Käyttää vain Noden sisäänrakennettuja moduuleja.
 
 import { createServer } from 'node:http';
@@ -6,7 +7,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('.', import.meta.url));
+const root = fileURLToPath(new URL('./app/', import.meta.url));
 const port = Number(process.argv[2] || process.env.PORT || 8080);
 const types = {
   '.html': 'text/html; charset=utf-8',

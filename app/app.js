@@ -10,6 +10,8 @@ const els = {
 };
 
 const SORT_KEY = 'nuotit.sort';
+// Android- ja iOS-sovelluksessa (Capacitor) sivu on paketin sisällä, ja takaisin-painike hoidetaan natiivisti.
+const NATIVE = window.Capacitor?.isNativePlatform?.() ?? false;
 const ROUTE = /^#\/nuotti\/(.+)$/;
 const collator = new Intl.Collator('fi', { numeric: true, sensitivity: 'base' });
 
@@ -335,7 +337,19 @@ if ('launchQueue' in window) {
   });
 }
 
-if ('serviceWorker' in navigator &&(location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+// Android-sovelluksessa (Capacitor) tiedostot ovat paketin sisällä, joten service workeria ei tarvita.
+// Takaisin-painike sulkee ensin muokkausikkunan tai nuotin, ja kirjastossa se sulkee sovelluksen.
+if (NATIVE) {
+  const { App } = window.Capacitor.Plugins;
+  App?.addListener('backButton', ({ canGoBack }) => {
+    if (els.dialog.open) { els.dialog.close(); editing = null; }
+    else if (viewer.isOpen) viewer.onBack();
+    else if (canGoBack) history.back();
+    else App.exitApp();
+  });
+}
+
+if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
   // Kun uusi versio otetaan käyttöön, ladataan sovellus uudelleen heti kirjastossa
   // (tai kun nuotti suljetaan), jotta päivitys ei vaadi kahta avauskertaa.
   const hadController = !!navigator.serviceWorker.controller;

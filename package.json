@@ -2,9 +2,20 @@
   "name": "nuotit",
   "version": "1.0.0",
   "private": true,
-  "description": "Kuoron nuottikirjasto: PDF-nuotit tabletille ja puhelimelle",
+  "description": "Kuoron nuottikirjasto: PDF-nuotit verkkosovelluksena ja Android-sovelluksena (Capacitor)",
   "type": "module",
   "scripts": {
-    "start": "node serve.js 8080"
+    "start": "node serve.js 8080",
+    "sync": "cap sync",
+    "android": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.6.2"
   }
 }

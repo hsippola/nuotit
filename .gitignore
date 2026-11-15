@@ -1,2 +1,11 @@
 .claude/
 node_modules/
+
+# Sovelluksen allekirjoitusavain ja sen salasanat. Säilytä varmuuskopio muualla, älä vie GitHubiin.
+*.keystore
+*.jks
+keystore.properties
+
+# Python
+__pycache__/
+.venv/

@@ -1,0 +1,11 @@
+{
+  "appId": "fi.nakoalapaikka.nuotit",
+  "appName": "Nuotit",
+  "webDir": "app",
+  "android": {
+    "backgroundColor": "#1f3a5f"
+  },
+  "ios": {
+    "backgroundColor": "#1f3a5f"
+  }
+}
