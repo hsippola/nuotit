@@ -2,7 +2,7 @@
 // Nuotit itse ovat IndexedDB:ssä; tämä välimuistittaa vain sovelluksen tiedostot.
 // Kun julkaiset uuden version, kasvata CACHE-numeroa.
 
-const CACHE = 'nuotit-v4';
+const CACHE = 'nuotit-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -20,7 +20,9 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' ohittaa selaimen HTTP-välimuistin, jotta uusi versio saa varmasti uudet tiedostot.
+  const requests = ASSETS.map((url) => new Request(url, { cache: 'reload' }));
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(requests)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {

@@ -416,39 +416,40 @@ export class Viewer {
 
   #bind() {
     // ----- Kosketus ja hiiri: napautus, pyyhkäisy, vetäminen, nipistys -----
-    const pts = new Map();
-    let g = null;   // meneillään oleva ele
+    // Kosketusnäytöllä käytetään Touch-tapahtumia: ne tunnistavat kahden sormen
+    // nipistyksen luotettavimmin iPadilla ja Androidilla, ja niiden avulla selaimen
+    // oma sivun zoomaus saadaan estettyä. Hiiri ja kynä käyttävät Pointer-tapahtumia.
+    const pts = new Map();   // aktiiviset sormet/osoittimet: tunniste → { x, y }
+    let g = null;            // meneillään oleva ele
+    const hasTouch = 'ontouchstart' in window;
     const local = (e) => {
       const r = this.stage.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
 
-    this.stage.addEventListener('pointerdown', (e) => {
-      if (!this.pdf || (e.pointerType === 'mouse' && e.button !== 0)) return;
-      try { this.stage.setPointerCapture(e.pointerId); } catch { /* ei tuettu */ }
-      pts.set(e.pointerId, local(e));
-      if (pts.size === 1) {
-        const p = local(e);
-        g = { type: 'tap', sx: p.x, sy: p.y, x0: this.x, y0: this.y };
-      } else if (pts.size === 2) {
-        const [a, b] = [...pts.values()];
-        g = {
-          type: 'pinch',
-          d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
-          mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
-          z0: this.zoom, x0: this.x, y0: this.y,
-        };
-      } else {
-        g = { type: 'none' };
-      }
-    });
+    const startPinch = () => {
+      const [a, b] = [...pts.values()];
+      g = {
+        type: 'pinch',
+        d0: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+        mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2,
+        z0: this.zoom, x0: this.x, y0: this.y,
+      };
+    };
 
-    this.stage.addEventListener('pointermove', (e) => {
-      if (!pts.has(e.pointerId) || !g) return;
-      const p = local(e);
-      pts.set(e.pointerId, p);
+    const down = (id, p) => {
+      pts.set(id, p);
+      if (pts.size === 1) g = { type: 'tap', sx: p.x, sy: p.y, x0: this.x, y0: this.y };
+      else if (pts.size === 2) startPinch();
+      else g = { type: 'none' };
+    };
 
-      if (g.type === 'pinch' && pts.size === 2) {
+    const move = (changes) => {
+      for (const [id, p] of changes) if (pts.has(id)) pts.set(id, p);
+      if (!g) return;
+
+      if (g.type === 'pinch') {
+        if (pts.size !== 2) return;
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         const mx = (a.x + b.x) / 2;
@@ -463,7 +464,8 @@ export class Viewer {
         return;
       }
 
-      if (g.type === 'tap' || g.type === 'pan') {
+      if ((g.type === 'tap' || g.type === 'pan') && pts.size === 1) {
+        const [p] = pts.values();
         const dx = p.x - g.sx;
         const dy = p.y - g.sy;
         if (g.type === 'tap' && Math.hypot(dx, dy) > 10) g.type = this.zoom > 1.01 ? 'pan' : 'swipe';
@@ -473,12 +475,11 @@ export class Viewer {
           this.#apply(false);
         }
       }
-    });
+    };
 
-    const end = (e) => {
-      if (!pts.has(e.pointerId)) return;
-      const p = local(e);
-      pts.delete(e.pointerId);
+    const up = (id, p, cancelled) => {
+      if (!pts.has(id)) return;
+      pts.delete(id);
       if (!g) return;
 
       if (g.type === 'pinch') {
@@ -487,7 +488,7 @@ export class Viewer {
         g = pts.size ? { type: 'none' } : null;
         return;
       }
-      if (e.type === 'pointercancel' || g.type === 'none' || g.type === 'pan') { g = pts.size ? { type: 'none' } : null; return; }
+      if (cancelled || pts.size || g.type === 'none' || g.type === 'pan') { g = pts.size ? { type: 'none' } : null; return; }
 
       const dx = p.x - g.sx;
       const dy = p.y - g.sy;
@@ -501,8 +502,40 @@ export class Viewer {
       }
       g = null;
     };
-    this.stage.addEventListener('pointerup', end);
-    this.stage.addEventListener('pointercancel', end);
+
+    if (hasTouch) {
+      const opts = { passive: false };
+      this.stage.addEventListener('touchstart', (e) => {
+        if (!this.pdf) return;
+        e.preventDefault();   // estää selaimen oman zoomauksen, vierityksen ja kaksoisnapautuszoomin
+        for (const t of e.changedTouches) down(`t${t.identifier}`, local(t));
+      }, opts);
+      this.stage.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        move([...e.changedTouches].map((t) => [`t${t.identifier}`, local(t)]));
+      }, opts);
+      const touchEnd = (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches) up(`t${t.identifier}`, local(t), e.type === 'touchcancel');
+      };
+      this.stage.addEventListener('touchend', touchEnd, opts);
+      this.stage.addEventListener('touchcancel', touchEnd, opts);
+    }
+
+    const handledByTouch = (e) => hasTouch && e.pointerType === 'touch';
+    this.stage.addEventListener('pointerdown', (e) => {
+      if (!this.pdf || handledByTouch(e) || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      try { this.stage.setPointerCapture(e.pointerId); } catch { /* ei tuettu */ }
+      down(`p${e.pointerId}`, local(e));
+    });
+    this.stage.addEventListener('pointermove', (e) => {
+      if (!handledByTouch(e)) move([[`p${e.pointerId}`, local(e)]]);
+    });
+    const pointerEnd = (e) => {
+      if (!handledByTouch(e)) up(`p${e.pointerId}`, local(e), e.type === 'pointercancel');
+    };
+    this.stage.addEventListener('pointerup', pointerEnd);
+    this.stage.addEventListener('pointercancel', pointerEnd);
 
     // Safari: estetään koko sivun zoomaus nipistyksellä.
     this.el.addEventListener('gesturestart', (e) => e.preventDefault());

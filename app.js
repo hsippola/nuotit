@@ -17,6 +17,7 @@ let scores = [];
 let activeTag = null;
 let editing = null;
 let saveTimer = null;
+let updatePending = false;   // uusi versio odottaa, kunnes nuotti suljetaan
 
 const prefs = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -299,6 +300,7 @@ async function closeViewer() {
   viewer.close({ silent: true });
   document.title = 'Nuotit';
   await flushProgress(score);
+  if (updatePending) { location.reload(); return; }
   await refresh();
 }
 
@@ -334,5 +336,13 @@ if ('launchQueue' in window) {
 }
 
 if ('serviceWorker' in navigator &&(location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+  // Kun uusi versio otetaan käyttöön, ladataan sovellus uudelleen heti kirjastossa
+  // (tai kun nuotti suljetaan), jotta päivitys ei vaadi kahta avauskertaa.
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;   // ensiasennus, ei päivitys
+    if (!viewer.isOpen) { location.reload(); return; }
+    updatePending = true;
+  });
   navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker:', err));
 }
