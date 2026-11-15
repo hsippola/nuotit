@@ -1,0 +1,10 @@
+{
+  "name": "nuotit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kuoron nuottikirjasto: PDF-nuotit tabletille ja puhelimelle",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.js 8080"
+  }
+}

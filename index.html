@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nuotit</title>
+  <meta name="description" content="Kuoron nuottikirjasto: tallenna PDF-nuotit ja selaa niitä.">
+  <meta name="theme-color" content="#1f3a5f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Nuotit">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ===== Kirjasto ===== -->
+  <main id="library" class="library">
+    <header class="lib-header">
+      <div class="lib-title">
+        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18.5a2.5 2.5 0 1 1-2.5-2.5c.53 0 1.02.16 1.43.44V5.2l11-2.2v12.5a2.5 2.5 0 1 1-2.5-2.5c.53 0 1.02.16 1.43.44V7.46l-8.86 1.77V18.5z" fill="currentColor"/></svg>
+        <h1>Nuotit</h1>
+      </div>
+      <label class="btn btn-primary" id="add-btn">
+        <input type="file" id="file-input" accept="application/pdf,.pdf" multiple hidden>
+        <span aria-hidden="true">＋</span> Lisää nuotteja
+      </label>
+    </header>
+
+    <div class="lib-tools">
+      <input type="search" id="search" placeholder="Hae nimellä, säveltäjällä tai tunnisteella" autocomplete="off" aria-label="Hae nuotteja">
+      <select id="sort" aria-label="Järjestys">
+        <option value="title">Nimi A–Ö</option>
+        <option value="recent">Viimeksi avatut</option>
+        <option value="added">Viimeksi lisätyt</option>
+      </select>
+    </div>
+    <div id="tag-filter" class="tag-filter" hidden></div>
+
+    <section id="grid" class="grid" aria-live="polite"></section>
+
+    <div id="empty" class="empty" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18.5a2.5 2.5 0 1 1-2.5-2.5c.53 0 1.02.16 1.43.44V5.2l11-2.2v12.5a2.5 2.5 0 1 1-2.5-2.5c.53 0 1.02.16 1.43.44V7.46l-8.86 1.77V18.5z" fill="currentColor"/></svg>
+      <h2>Ei vielä nuotteja</h2>
+      <p>Lisää PDF-nuotit painamalla <b>Lisää nuotteja</b> tai raahaa tiedostot tähän.</p>
+    </div>
+    <div id="no-results" class="empty small" hidden>
+      <p>Haulla ei löytynyt nuotteja.</p>
+    </div>
+
+    <footer id="lib-footer" class="lib-footer"></footer>
+  </main>
+
+  <!-- ===== Katselin ===== -->
+  <section id="viewer" class="viewer" hidden aria-label="Nuottikatselin">
+    <div id="stage" class="stage"></div>
+    <div class="flash flash-left" id="flash-left"></div>
+    <div class="flash flash-right" id="flash-right"></div>
+
+    <div id="tap-hint" class="tap-hint" hidden>
+      <div class="hint-zone"><span>‹</span>Edellinen sivu</div>
+      <div class="hint-zone mid">Napauta keskeltä<br>valikko</div>
+      <div class="hint-zone"><span>›</span>Seuraava sivu</div>
+    </div>
+
+    <header class="v-bar v-top">
+      <button class="v-btn" id="v-back" aria-label="Takaisin kirjastoon">‹ Kirjasto</button>
+      <div class="v-title" id="v-title"></div>
+      <button class="v-btn" id="v-full" title="Koko näyttö" aria-label="Koko näyttö">⛶</button>
+    </header>
+    <footer class="v-bar v-bottom">
+      <button class="v-btn" id="v-prev" aria-label="Edellinen sivu">‹</button>
+      <input type="range" id="v-slider" min="1" max="1" value="1" aria-label="Siirry sivulle">
+      <span class="v-page" id="v-page">1 / 1</span>
+      <button class="v-btn" id="v-next" aria-label="Seuraava sivu">›</button>
+    </footer>
+    <div id="v-msg" class="v-msg" hidden></div>
+  </section>
+
+  <!-- ===== Muokkausikkuna ===== -->
+  <dialog id="edit-dialog" class="dialog">
+    <form method="dialog" id="edit-form">
+      <h2>Nuotin tiedot</h2>
+      <label>Nimi
+        <input name="title" required autocomplete="off">
+      </label>
+      <label>Säveltäjä / sovittaja
+        <input name="composer" autocomplete="off">
+      </label>
+      <label>Tunnisteet <small>(pilkulla erotettuna, esim. kevätkonsertti, joulu)</small>
+        <input name="tags" autocomplete="off">
+      </label>
+      <p class="meta" id="edit-meta"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" id="edit-delete">Poista</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="edit-cancel">Peruuta</button>
+        <button type="submit" class="btn btn-primary" value="save">Tallenna</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="drop-overlay" class="drop-overlay" hidden>Pudota PDF-tiedostot tähän</div>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
