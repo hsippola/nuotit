@@ -2,7 +2,7 @@
 // Nuotit itse ovat IndexedDB:ssä; tämä välimuistittaa vain sovelluksen tiedostot.
 // Kun julkaiset uuden version, kasvata CACHE-numeroa.
 
-const CACHE = 'nuotit-v5';
+const CACHE = 'nuotit-v6';
 const ASSETS = [
   './',
   './index.html',

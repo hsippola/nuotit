@@ -64,6 +64,7 @@ export class Viewer {
     this.zoomLabel = document.getElementById('v-zoom-label');
     this.msgEl = document.getElementById('v-msg');
     this.hintEl = document.getElementById('tap-hint');
+    this.badgeEl = document.getElementById('page-badge');
 
     this.pdf = null;
     this.score = null;
@@ -115,6 +116,7 @@ export class Viewer {
     } else {
       this.#setUI(true, 2500);
     }
+    this.#showBadge();
     await this.render();
   }
 
@@ -125,6 +127,8 @@ export class Viewer {
     clearTimeout(this.uiTimer);
     clearTimeout(this.tapTimer);
     clearTimeout(this.sharpenTimer);
+    clearTimeout(this.badgeTimer);
+    this.badgeEl.classList.remove('show');
     this.#clearCache();
     this.stage.replaceChildren();
     this.canvas = null;
@@ -159,8 +163,17 @@ export class Viewer {
     if (n === this.page) return;
     this.page = n;
     this.align = align;
+    this.#showBadge();
     this.render();
     this.onPage?.(n);
+  }
+
+  /** Näyttää sivunumeron hetken vasemmassa yläkulmassa. */
+  #showBadge() {
+    this.badgeEl.textContent = `${this.page} / ${this.count}`;
+    this.badgeEl.classList.add('show');
+    clearTimeout(this.badgeTimer);
+    this.badgeTimer = setTimeout(() => this.badgeEl.classList.remove('show'), 2500);
   }
 
   #scrollStep(dir) {
