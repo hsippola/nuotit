@@ -11,6 +11,9 @@ Verkkoversio: https://hsippola.github.io/nuotit/
 - **Lisää nuotteja**: valitse yksi tai useampi PDF (tietokoneella myös raahaamalla).
 - **Kirjasto**: pikkukuvat, haku (nimi, säveltäjä, tunniste), järjestys ja tunnisteet
   (esim. *kevätkonsertti*) suodattimina. Kun tunniste on valittuna, uudet nuotit saavat sen automaattisesti.
+- **Oma järjestys**: paina korttia hetki ja raahaa se uuteen paikkaan (tietokoneella raahaa hiirellä).
+  Järjestys vaihtuu samalla *Oma järjestys* -tilaan. Kun haku tai tunniste on valittuna,
+  näkyvät nuotit vaihtavat paikkaa keskenään ja muut pysyvät paikoillaan. Uudet nuotit tulevat loppuun.
 - **Katselin**:
   - napauta **oikeaa reunaa** → seuraava sivu, **vasenta reunaa** → edellinen
   - nuotit näytetään aina yksi sivu kerrallaan, sovitettuna näytölle
@@ -35,6 +38,7 @@ app/                   julkaistava sovellus (verkkoversio ja Android-sovelluksen
   index.html, style.css
   app.js               kirjasto, tuonti, muokkaus, reititys, Android-takaisin-painike
   viewer.js            PDF-katselin: sivunvaihto, zoomaus, sivunumero
+  reorder.js           korttien järjestäminen raahaamalla
   db.js                IndexedDB-tallennus
   sw.js                offline-välimuisti (uudet tiedostot lisätään sen ASSETS-listaan)
   icons/               verkkoversion kuvakkeet
@@ -94,11 +98,18 @@ npx cap open android
 
 Android Studiossa sovelluksen voi ajaa emulaattorissa tai USB:llä kytketyssä puhelimessa (Run ▶).
 
-**APK-tiedosto suoraan puhelimeen** (ilman Google Playta): Android Studiossa *Build → Generate
-Signed App Bundle or APK → APK*. Syntyneen `app-release.apk`-tiedoston voi lähettää puhelimeen
-(esim. sähköpostilla tai Driven kautta) ja asentaa. Puhelin pyytää sallimaan asennuksen
-tuntemattomasta lähteestä. Päivitys asennetaan samalla tavalla uuden APK:n päälle, kunhan se
-on allekirjoitettu samalla avaimella; tallennetut nuotit säilyvät.
+**APK-tiedosto suoraan puhelimeen** (ilman Google Playta):
+
+1. Android Studiossa *Build → Generate Signed App Bundle or APK → APK → Next*.
+2. Ensimmäisellä kerralla *Create new…*: avaimen paikka `C:\Users\HarriSippola\Avaimet\nuotit.jks`
+   (projektikansion ulkopuolella, samassa kansiossa kuin Yhteyden helmien avain), salasana,
+   *Alias* `nuotit` ja *Certificate*-kohtaan vähintään nimi. Myöhemmin valitse sama tiedosto.
+3. Valitse *release* ja *Create*. APK syntyy kansioon `android/app/release/app-release.apk`.
+
+APK:n voi lähettää puhelimeen (esim. sähköpostilla, WhatsAppilla tai Driven kautta) ja asentaa.
+Puhelin pyytää sallimaan asennuksen tuntemattomasta lähteestä. Päivitys asennetaan samalla
+tavalla uuden APK:n päälle, kunhan `versionCode` on kasvanut ja APK on allekirjoitettu samalla
+avaimella; tallennetut nuotit säilyvät. Varmuuskopioi avain ja salasana.
 
 **Google Play -julkaisu**
 

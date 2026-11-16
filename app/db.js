@@ -70,3 +70,13 @@ export async function deleteScore(id) {
   tx.objectStore('files').delete(id);
   return completed(tx);
 }
+
+/** Tallentaa usean nuotin tiedot yhdellä kertaa (esim. uusi järjestys). */
+export async function updateScores(list) {
+  if (!list.length) return;
+  const db = await openDb();
+  const tx = db.transaction('scores', 'readwrite');
+  const store = tx.objectStore('scores');
+  for (const meta of list) store.put(meta);
+  return completed(tx);
+}

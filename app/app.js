@@ -1,5 +1,6 @@
 import * as db from './db.js';
 import { Viewer, analyzePdf } from './viewer.js';
+import { enableReorder } from './reorder.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -88,22 +89,65 @@ function renderLibrary() {
     return [s.title, s.composer, ...(s.tags || [])].join(' ').toLocaleLowerCase('fi').includes(q);
   });
 
-  const sort = els.sort.value;
-  list.sort((a, b) => {
-    if (sort === 'recent') return (b.lastOpened || 0) - (a.lastOpened || 0) || collator.compare(a.title, b.title);
-    if (sort === 'added') return (b.addedAt || 0) - (a.addedAt || 0);
-    return collator.compare(a.title, b.title);
-  });
+  sortScores(list, els.sort.value);
 
+  reorder?.cancel();
   els.grid.replaceChildren(...list.map(card));
   els.empty.hidden = scores.length > 0;
   els.noResults.hidden = !(scores.length > 0 && list.length === 0);
 
   const total = scores.reduce((sum, s) => sum + (s.size || 0), 0);
-  els.footer.textContent = scores.length
-    ? `${scores.length} ${scores.length === 1 ? 'nuotti' : 'nuottia'} · ${formatSize(total)} · tallennettu tälle laitteelle`
-    : '';
+  els.footer.replaceChildren(...(scores.length ? [
+    `${scores.length} ${scores.length === 1 ? 'nuotti' : 'nuottia'} · ${formatSize(total)} · tallennettu tälle laitteelle`,
+    scores.length > 1 ? el('div', { class: 'lib-hint' }, 'Järjestä nuotteja painamalla korttia hetken ja raahaamalla.') : null,
+  ] : []).filter(Boolean));
 }
+
+const hasOrder = (s) => Number.isFinite(s.order);
+
+function sortScores(list, sort) {
+  return list.sort((a, b) => {
+    if (sort === 'manual') {
+      // Nuotit, joita ei ole vielä järjestetty, ovat lopussa nimen mukaan.
+      if (hasOrder(a) && hasOrder(b)) return a.order - b.order;
+      if (hasOrder(a) !== hasOrder(b)) return hasOrder(a) ? -1 : 1;
+      return collator.compare(a.title, b.title);
+    }
+    if (sort === 'recent') return (b.lastOpened || 0) - (a.lastOpened || 0) || collator.compare(a.title, b.title);
+    if (sort === 'added') return (b.addedAt || 0) - (a.addedAt || 0);
+    return collator.compare(a.title, b.title);
+  });
+}
+
+/**
+ * Tallentaa raahauksen jälkeisen järjestyksen. `visibleIds` ovat näkyvät kortit uudessa
+ * järjestyksessä; haun tai tunnisteen piilottamat nuotit pysyvät omilla paikoillaan.
+ * Jos järjestyksenä oli jokin muu, se vaihtuu omaksi järjestykseksi.
+ */
+async function applyOrder(visibleIds) {
+  const full = sortScores([...scores], els.sort.value);
+  const visible = new Set(visibleIds);
+  const byId = new Map(scores.map((s) => [s.id, s]));
+  let k = 0;
+  const result = full.map((s) => (visible.has(s.id) ? byId.get(visibleIds[k++]) : s));
+  const changed = [];
+  result.forEach((s, i) => { if (s.order !== i) { s.order = i; changed.push(s); } });
+
+  if (els.sort.value !== 'manual') {
+    els.sort.value = 'manual';
+    prefs.set(SORT_KEY, 'manual');
+    toast('Järjestykseksi vaihdettiin Oma järjestys');
+  }
+  renderLibrary();
+  try {
+    await db.updateScores(changed);
+  } catch (err) {
+    console.error(err);
+    toast('Järjestyksen tallennus epäonnistui');
+  }
+}
+
+const reorder = enableReorder(els.grid, { onDrop: applyOrder });
 
 function chip(label, pressed, onclick) {
   return el('button', { class: 'chip', type: 'button', 'aria-pressed': String(pressed), onclick }, label);
@@ -111,9 +155,9 @@ function chip(label, pressed, onclick) {
 
 function card(s) {
   const sub = [s.composer, `${s.pageCount} s.`].filter(Boolean).join(' · ');
-  return el('article', { class: 'card' },
+  return el('article', { class: 'card', 'data-id': s.id },
     el('button', { class: 'card-open', type: 'button', onclick: () => openScore(s.id), 'aria-label': `Avaa ${s.title}` },
-      el('div', { class: 'thumb' }, s.thumb ? el('img', { src: s.thumb, alt: '', loading: 'lazy' }) : null),
+      el('div', { class: 'thumb' }, s.thumb ? el('img', { src: s.thumb, alt: '', loading: 'lazy', draggable: 'false' }) : null),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-title' }, s.title),
         el('div', { class: 'card-sub' }, sub),
@@ -152,6 +196,7 @@ async function importFiles(fileList) {
         addedAt: Date.now(),
         lastOpened: 0,
         lastPage: 1,
+        order: scores.reduce((max, s) => (hasOrder(s) ? Math.max(max, s.order + 1) : max), 0),
       };
       await db.addScore(meta, data);
       scores.push(meta);
