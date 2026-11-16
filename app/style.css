@@ -175,12 +175,50 @@ html.reordering, html.reordering * { cursor: grabbing !important; }
   position: absolute; inset: 0; overflow: hidden;
   touch-action: none;
 }
-.stage canvas {
-  position: absolute; left: 0; top: 0; display: block;
-  transform-origin: 0 0; will-change: transform;
+/* Sivu (canvas) ja sen merkinnät (svg) samassa kehyksessä, jota siirretään ja zoomataan. */
+.sheet {
+  position: absolute; left: 0; top: 0;
+  transform-origin: 0 0;
   background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.4);
 }
-.stage canvas.animating { transition: transform .22s ease; }
+.sheet.animating { transition: transform .22s ease; }
+.sheet canvas { position: absolute; left: 0; top: 0; display: block; transform: translateZ(0); }
+.sheet .notes {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  overflow: hidden; pointer-events: none;
+  fill: none; stroke-linecap: round; stroke-linejoin: round;
+}
+.sheet .notes:empty { display: none; }
+.viewer.drawing .stage { cursor: crosshair; }
+.viewer.drawing .v-bar { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+.viewer.drawing .v-bottom { transform: translateY(100%); }
+
+/* Merkintätyökalut */
+.d-bar {
+  position: absolute; z-index: 2; left: 50%; transform: translateX(-50%);
+  bottom: max(10px, env(safe-area-inset-bottom));
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px;
+  width: max-content; max-width: calc(100% - 16px); padding: 6px;
+  background: rgba(20,21,24,.9); color: #fff; border-radius: 16px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.4); backdrop-filter: blur(8px);
+}
+.d-bar[hidden] { display: none; }
+.d-btn {
+  width: 42px; height: 42px; padding: 0; border: 0; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; color: #fff; cursor: pointer; font-size: 1rem;
+}
+.d-btn svg { width: 22px; height: 22px; }
+.d-btn:hover { background: rgba(255,255,255,.12); }
+.d-btn[aria-pressed=true] { background: rgba(255,255,255,.22); box-shadow: inset 0 0 0 2px #e0b25c; }
+.d-btn:disabled { opacity: .35; cursor: default; background: none; }
+.d-nav { font-size: 1.6rem; }
+.d-done { width: auto; padding: 0 14px; background: #e0b25c; color: #1d1f24; font-weight: 600; }
+.d-done:hover { background: #ebc477; }
+.d-sep { width: 1px; height: 26px; background: rgba(255,255,255,.2); margin: 0 2px; }
+.swatch { width: 22px; height: 22px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+.swatch.hl { border-radius: 4px; width: 14px; height: 24px; background: #ffd400; transform: rotate(30deg); box-shadow: none; opacity: .85; }
+#v-draw svg { width: 20px; height: 20px; vertical-align: -4px; }
 .stage .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #bbb; }
 
 .flash {
@@ -250,4 +288,5 @@ html.reordering, html.reordering * { cursor: grabbing !important; }
   .v-page { min-width: 4.5em; font-size: .9rem; }
   .v-title { visibility: hidden; }
   #v-zoom-label { min-width: 3.8em; padding: 0 6px; }
+  .d-sep { display: none; }
 }

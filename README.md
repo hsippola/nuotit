@@ -27,6 +27,13 @@ Verkkoversio: https://hsippola.github.io/nuotit/
   - pyyhkäisy sivuttain vaihtaa myös sivua
   - nuolinäppäimet / PageUp-PageDown / välilyönti → toimii Bluetooth-sivunkääntöpolkimilla
   - näyttö pysyy päällä katselun ajan, ja sovellus muistaa mihin sivuun jäit
+- **Merkinnät**: valikon kynä-painike (✎) avaa piirtotilan. Valittavana musta, punainen ja
+  sininen kynä, keltainen korostus ja pyyhekumi (poistaa koko viivan), lisäksi kumoa ja sivun
+  merkintöjen poisto. Yksi sormi, kynä tai hiiri piirtää; kaksi sormea zoomaa ja siirtää sivua.
+  Jos piirrät kynällä, sormella voi samaan aikaan vaihtaa sivua ja kämmen ei jätä jälkiä.
+  Sivua vaihdetaan piirtotilassa työkalurivin ‹ ›-painikkeilla tai sivunkääntöpolkimella;
+  *Valmis* palaa tavalliseen katseluun. Merkinnät tallentuvat automaattisesti ja näkyvät aina.
+  Ne ovat kevyitä vektoriviivoja sivun päällä, joten ne eivät hidasta sivunvaihtoa.
 
 Nuotit tallentuvat vain sille laitteelle, jolla ne lisätään. Android-sovelluksen ja
 verkkoversion nuotit ovat erillään toisistaan.
@@ -38,8 +45,9 @@ app/                   julkaistava sovellus (verkkoversio ja Android-sovelluksen
   index.html, style.css
   app.js               kirjasto, tuonti, muokkaus, reititys, Android-takaisin-painike
   viewer.js            PDF-katselin: sivunvaihto, zoomaus, sivunumero
+  notes.js             merkinnät (kynä, korostus, pyyhekumi, kumoa)
   reorder.js           korttien järjestäminen raahaamalla
-  db.js                IndexedDB-tallennus
+  db.js                IndexedDB-tallennus (nuotit, PDF-tiedostot ja merkinnät)
   sw.js                offline-välimuisti (uudet tiedostot lisätään sen ASSETS-listaan)
   icons/               verkkoversion kuvakkeet
   vendor/              pdf.js 4.10.38 (legacy-build vanhemmille laitteille), Apache 2.0

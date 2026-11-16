@@ -2,7 +2,7 @@
 // erillisissä varastoissa, jotta kirjaston listaus pysyy nopeana.
 
 const DB_NAME = 'nuotit';
-const DB_VERSION = 1;
+const DB_VERSION = 2;   // 2: merkinnät (notes)
 let dbPromise;
 
 function openDb() {
@@ -13,8 +13,14 @@ function openDb() {
         const db = req.result;
         if (!db.objectStoreNames.contains('scores')) db.createObjectStore('scores', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        // Uudempi versio (toinen välilehti) päivittää tietokantaa → suljetaan tämä yhteys.
+        db.onversionchange = () => { db.close(); dbPromise = null; };
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
     });
   }
@@ -65,9 +71,10 @@ export async function updateScore(meta) {
 
 export async function deleteScore(id) {
   const db = await openDb();
-  const tx = db.transaction(['scores', 'files'], 'readwrite');
+  const tx = db.transaction(['scores', 'files', 'notes'], 'readwrite');
   tx.objectStore('scores').delete(id);
   tx.objectStore('files').delete(id);
+  tx.objectStore('notes').delete(id);
   return completed(tx);
 }
 
@@ -78,5 +85,19 @@ export async function updateScores(list) {
   const tx = db.transaction('scores', 'readwrite');
   const store = tx.objectStore('scores');
   for (const meta of list) store.put(meta);
+  return completed(tx);
+}
+
+/** Nuotin merkinnät: { id, pages: { sivunumero: [viivat] } } tai undefined. */
+export async function getNotes(id) {
+  const db = await openDb();
+  return asPromise(db.transaction('notes').objectStore('notes').get(id));
+}
+
+export async function putNotes(id, pages) {
+  const db = await openDb();
+  const tx = db.transaction('notes', 'readwrite');
+  if (Object.keys(pages).length) tx.objectStore('notes').put({ id, pages });
+  else tx.objectStore('notes').delete(id);
   return completed(tx);
 }

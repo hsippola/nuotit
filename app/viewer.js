@@ -3,8 +3,11 @@
 // - Zoomaus: nipistä kahdella sormella, kaksoisnapauta keskeltä, valikon −/+ tai Ctrl+rulla.
 //   Zoomattuna sivua siirretään yhdellä sormella vetämällä, ja reunan napautus
 //   vierittää ensin sivua alas/ylös ennen kuin sivu vaihtuu.
+// - Merkinnät: piirtotilassa yksi sormi, kynä tai hiiri piirtää ja kaksi sormea zoomaa.
+//   Jos käytetään kynää, sormilla voi samalla vaihtaa sivua ja siirtää sivua.
 
 import * as pdfjsLib from './vendor/pdf.min.js';
+import { Notes, NOTE_W, TOOLS } from './notes.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.js', import.meta.url).href;
 
@@ -18,6 +21,9 @@ const MAX_PIXELS = 12e6;    // iOS rajoittaa canvasin kokoa (~16 Mpx); pysytää
 const MARGIN = 4;           // reunus sivun ympärillä (px)
 const DOUBLE_TAP_MS = 280;
 const SCROLL_PART = 0.85;   // kuinka suuri osa näkymästä vieritetään kerralla
+const TOOL_KEY = 'nuotit.tool';
+const ERASER_PX = 14;       // pyyhekumin säde näytöllä
+const STROKE_GRACE_MS = 300; // näin nuori viiva hylätään, jos toinen sormi tulee (nipistys)
 
 const prefs = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -50,11 +56,12 @@ export async function analyzePdf(data) {
 }
 
 export class Viewer {
-  constructor({ onBack, onPage, onZoom, onClosed }) {
+  constructor({ onBack, onPage, onZoom, onClosed, onNotes }) {
     this.onBack = onBack;
     this.onPage = onPage;
     this.onZoom = onZoom;
     this.onClosed = onClosed;
+    this.onNotes = onNotes;
     this.el = document.getElementById('viewer');
     this.stage = document.getElementById('stage');
     this.titleEl = document.getElementById('v-title');
@@ -82,14 +89,29 @@ export class Viewer {
     this.canvas = null;     // näkyvä sivu
     this.align = 'top';     // mihin kohtaan uusi sivu asetetaan ('top' | 'bottom' | null = pidä paikka)
 
+    // Sivu ja sen merkinnät ovat samassa kehyksessä, jota siirretään ja zoomataan.
+    this.sheet = document.createElement('div');
+    this.sheet.className = 'sheet';
+    this.notesSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.notesSvg.setAttribute('class', 'notes');
+    this.notesSvg.setAttribute('aria-hidden', 'true');
+    this.sheet.append(this.notesSvg);
+    this.notes = new Notes(this.notesSvg, { onChange: () => { this.#updateDrawBar(); this.onNotes?.(this.notes.pages); } });
+
+    // Piirtotila
+    this.drawing = false;
+    this.tool = TOOLS[prefs.get(TOOL_KEY)] ? prefs.get(TOOL_KEY) : 'red';
+    this.drawBar = document.getElementById('d-bar');
+
     this.#bind();
   }
 
   get isOpen() { return !this.el.hidden; }
 
-  async open(score, data) {
+  async open(score, data, notes) {
     this.close({ silent: true });
     this.score = score;
+    this.notes.load(notes);
     this.titleEl.textContent = score.title;
     this.stage.innerHTML = '<div class="loading">Ladataan…</div>';
     this.el.hidden = false;
@@ -129,9 +151,12 @@ export class Viewer {
     clearTimeout(this.sharpenTimer);
     clearTimeout(this.badgeTimer);
     this.badgeEl.classList.remove('show');
+    this.setDrawing(false);
     this.#clearCache();
     this.stage.replaceChildren();
+    this.canvas?.remove();
     this.canvas = null;
+    this.notes.load(null);
     this.hintEl.hidden = true;
     if (this.pdf) { this.pdf.destroy(); this.pdf = null; }
     if (this.wakeLock) { this.wakeLock.release().catch(() => {}); this.wakeLock = null; }
@@ -249,8 +274,8 @@ export class Viewer {
   #apply(animate = false) {
     if (!this.canvas) return;
     this.#clampPosition();
-    this.canvas.classList.toggle('animating', animate);
-    this.canvas.style.transform = `translate3d(${this.x}px, ${this.y}px, 0) scale(${this.zoom})`;
+    this.sheet.classList.toggle('animating', animate);
+    this.sheet.style.transform = `translate3d(${this.x}px, ${this.y}px, 0) scale(${this.zoom})`;
   }
 
   // ---------- Piirtäminen ----------
@@ -290,7 +315,17 @@ export class Viewer {
     if (this.align === 'bottom') this.y = H - canvas.fitH * this.zoom;
     this.align = null;   // null: sama sivu tarkempana → paikka säilyy
     this.#apply(false);
-    if (old !== canvas) this.stage.replaceChildren(canvas);
+    if (old !== canvas) {
+      this.sheet.style.width = `${canvas.fitW}px`;
+      this.sheet.style.height = `${canvas.fitH}px`;
+      if (old?.parentNode === this.sheet) old.replaceWith(canvas); else this.sheet.prepend(canvas);
+      if (Number(old?.dataset.page) !== Number(canvas.dataset.page) || !old) {
+        this.notes.end(false);
+        this.notes.show(Number(canvas.dataset.page), canvas.fitH / canvas.fitW);
+        this.#updateDrawBar();
+      }
+    }
+    if (this.sheet.parentNode !== this.stage) this.stage.replaceChildren(this.sheet);
   }
 
   #view() {
@@ -358,6 +393,48 @@ export class Viewer {
     this.slider.value = String(this.page);
   }
 
+  // ---------- Merkinnät ----------
+
+  setDrawing(on) {
+    on = !!on && !!this.pdf;
+    if (on === this.drawing) return;
+    this.drawing = on;
+    this.notes.end(true);
+    this.el.classList.toggle('drawing', on);
+    this.drawBar.hidden = !on;
+    if (on) {
+      this.#setUI(false);
+      this.hintEl.hidden = true;
+      this.#updateDrawBar();
+      this.#msg('Piirrä sormella tai kynällä · kaksi sormea zoomaa', 2200);
+    } else if (this.pdf) {
+      this.#setUI(true, 2500);
+    }
+  }
+
+  setTool(name) {
+    if (!TOOLS[name]) return;
+    this.tool = name;
+    prefs.set(TOOL_KEY, name);
+    this.#updateDrawBar();
+  }
+
+  #updateDrawBar() {
+    if (!this.drawBar || this.drawBar.hidden) return;
+    for (const b of this.drawBar.querySelectorAll('[data-tool]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.tool === this.tool));
+    }
+    document.getElementById('d-undo').disabled = !this.notes.hasUndo();
+  }
+
+  #eraserRadius() { return ERASER_PX * NOTE_W / this.canvas.fitW / this.zoom; }
+
+  /** Näkymän piste → sivun merkintäkoordinaatit. */
+  #toPage(p) {
+    const k = NOTE_W / this.canvas.fitW / this.zoom;
+    return [(p.x - this.x) * k, (p.y - this.y) * k];
+  }
+
   // ---------- Käyttöliittymä ----------
 
   #setUI(visible, autoHideMs = 0) {
@@ -366,11 +443,11 @@ export class Viewer {
     if (visible && autoHideMs) this.uiTimer = setTimeout(() => this.#setUI(false), autoHideMs);
   }
 
-  #msg(text) {
+  #msg(text, ms = 1100) {
     this.msgEl.textContent = text;
     this.msgEl.hidden = false;
     clearTimeout(this.msgTimer);
-    this.msgTimer = setTimeout(() => { this.msgEl.hidden = true; }, 1100);
+    this.msgTimer = setTimeout(() => { this.msgEl.hidden = true; }, ms);
   }
 
   #flash(side) {
@@ -421,6 +498,7 @@ export class Viewer {
     }
     this.lastTap = { t: now, x: cx, y: cy };
     clearTimeout(this.tapTimer);
+    if (this.drawing) return;   // piirtotilassa valikot pysyvät piilossa
     this.tapTimer = setTimeout(() => {
       this.lastTap = null;
       this.#setUI(this.el.classList.contains('ui-hidden'), 4000);
@@ -435,6 +513,31 @@ export class Viewer {
     const pts = new Map();   // aktiiviset sormet/osoittimet: tunniste → { x, y }
     let g = null;            // meneillään oleva ele
     const hasTouch = 'ontouchstart' in window;
+    let penSeen = false;     // kynä käytössä → sormet eivät piirrä (kämmen ei jätä jälkiä)
+    let penDown = false;
+    const ignored = new Set();   // kynän aiheuttamat kosketustapahtumat (Android) ohitetaan
+    const drawsWith = (kind) => this.drawing && !!this.canvas && (kind !== 'touch' || !penSeen);
+
+    const startStroke = (id, p) => {
+      const [x, y] = this.#toPage(p);
+      if (TOOLS[this.tool].eraser) {
+        g = { type: 'erase', id };
+        this.notes.eraseBegin();
+        this.notes.eraseAt(x, y, this.#eraserRadius());
+      } else {
+        g = { type: 'draw', id, t: performance.now() };
+        this.notes.begin(this.tool, x, y);
+      }
+    };
+    const continueStroke = (p) => {
+      const [x, y] = this.#toPage(p);
+      if (g.type === 'erase') this.notes.eraseAt(x, y, this.#eraserRadius());
+      else this.notes.extend(x, y, 0.6 / this.zoom);
+    };
+    const finishStroke = (commit) => {
+      if (g.type === 'erase') this.notes.eraseEnd();
+      else this.notes.end(commit);
+    };
     const local = (e) => {
       const r = this.stage.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -450,16 +553,29 @@ export class Viewer {
       };
     };
 
-    const down = (id, p) => {
+    const down = (id, p, kind) => {
       pts.set(id, p);
-      if (pts.size === 1) g = { type: 'tap', sx: p.x, sy: p.y, x0: this.x, y0: this.y };
-      else if (pts.size === 2) startPinch();
-      else g = { type: 'none' };
+      if (pts.size === 1) {
+        if (drawsWith(kind)) startStroke(id, p);
+        else g = { type: 'tap', sx: p.x, sy: p.y, x0: this.x, y0: this.y };
+      } else if (pts.size === 2) {
+        // Toinen sormi heti viivan alussa tarkoittaa nipistystä: aloitettu viiva hylätään.
+        if (g?.type === 'draw') finishStroke(performance.now() - g.t > STROKE_GRACE_MS);
+        else if (g?.type === 'erase') finishStroke(true);
+        startPinch();
+      } else {
+        g = { type: 'none' };
+      }
     };
 
     const move = (changes) => {
       for (const [id, p] of changes) if (pts.has(id)) pts.set(id, p);
       if (!g) return;
+
+      if (g.type === 'draw' || g.type === 'erase') {
+        for (const [id, p] of changes) if (id === g.id) continueStroke(p);
+        return;
+      }
 
       if (g.type === 'pinch') {
         if (pts.size !== 2) return;
@@ -495,6 +611,11 @@ export class Viewer {
       pts.delete(id);
       if (!g) return;
 
+      if (g.type === 'draw' || g.type === 'erase') {
+        if (id === g.id) { finishStroke(!cancelled); g = pts.size ? { type: 'none' } : null; }
+        return;
+      }
+
       if (g.type === 'pinch') {
         // Nipistys päättyy ensimmäisen sormen noustessa; jäljelle jäävä sormi ei tee mitään.
         this.#zoomChanged();
@@ -518,18 +639,26 @@ export class Viewer {
 
     if (hasTouch) {
       const opts = { passive: false };
+      // Kynä käsitellään Pointer-tapahtumina; sen kosketustapahtumat ohitetaan.
+      const own = (t) => !ignored.has(t.identifier);
       this.stage.addEventListener('touchstart', (e) => {
         if (!this.pdf) return;
         e.preventDefault();   // estää selaimen oman zoomauksen, vierityksen ja kaksoisnapautuszoomin
-        for (const t of e.changedTouches) down(`t${t.identifier}`, local(t));
+        for (const t of e.changedTouches) {
+          if (penDown || t.touchType === 'stylus') { ignored.add(t.identifier); continue; }
+          down(`t${t.identifier}`, local(t), 'touch');
+        }
       }, opts);
       this.stage.addEventListener('touchmove', (e) => {
         e.preventDefault();
-        move([...e.changedTouches].map((t) => [`t${t.identifier}`, local(t)]));
+        move([...e.changedTouches].filter(own).map((t) => [`t${t.identifier}`, local(t)]));
       }, opts);
       const touchEnd = (e) => {
         e.preventDefault();
-        for (const t of e.changedTouches) up(`t${t.identifier}`, local(t), e.type === 'touchcancel');
+        for (const t of e.changedTouches) {
+          if (!own(t)) { ignored.delete(t.identifier); continue; }
+          up(`t${t.identifier}`, local(t), e.type === 'touchcancel');
+        }
       };
       this.stage.addEventListener('touchend', touchEnd, opts);
       this.stage.addEventListener('touchcancel', touchEnd, opts);
@@ -538,13 +667,24 @@ export class Viewer {
     const handledByTouch = (e) => hasTouch && e.pointerType === 'touch';
     this.stage.addEventListener('pointerdown', (e) => {
       if (!this.pdf || handledByTouch(e) || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      if (e.pointerType === 'pen') {
+        penDown = true;
+        if (this.drawing) penSeen = true;
+        // Kynä keskeyttää sormella aloitetun eleen (esim. kämmen ehti koskettaa ensin).
+        for (const id of [...pts.keys()]) if (id.startsWith('t')) up(id, pts.get(id), true);
+      }
       try { this.stage.setPointerCapture(e.pointerId); } catch { /* ei tuettu */ }
-      down(`p${e.pointerId}`, local(e));
+      down(`p${e.pointerId}`, local(e), e.pointerType);
     });
     this.stage.addEventListener('pointermove', (e) => {
-      if (!handledByTouch(e)) move([[`p${e.pointerId}`, local(e)]]);
+      if (handledByTouch(e)) return;
+      const id = `p${e.pointerId}`;
+      // Piirrettäessä käytetään kaikkia välipisteitä, jotta kynän viiva on sileä.
+      const evs = (g?.type === 'draw' && g.id === id && e.getCoalescedEvents?.()) || [];
+      move((evs.length ? evs : [e]).map((ev) => [id, local(ev)]));
     });
     const pointerEnd = (e) => {
+      if (e.pointerType === 'pen') penDown = false;
       if (!handledByTouch(e)) up(`p${e.pointerId}`, local(e), e.type === 'pointercancel');
     };
     this.stage.addEventListener('pointerup', pointerEnd);
@@ -577,6 +717,7 @@ export class Viewer {
         if (e.key === '+' || e.key === '=') { e.preventDefault(); this.zoomBy(ZOOM_STEP); }
         else if (e.key === '-') { e.preventDefault(); this.zoomBy(1 / ZOOM_STEP); }
         else if (e.key === '0') { e.preventDefault(); this.resetZoom(); }
+        else if (e.key.toLowerCase() === 'z' && this.drawing) { e.preventDefault(); this.notes.undo(); }
         return;
       }
       switch (e.key) {
@@ -589,7 +730,7 @@ export class Viewer {
         case '+': case '=': e.preventDefault(); this.zoomBy(ZOOM_STEP); break;
         case '-': e.preventDefault(); this.zoomBy(1 / ZOOM_STEP); break;
         case '0': e.preventDefault(); this.resetZoom(); break;
-        case 'Escape': e.preventDefault(); this.onBack?.(); break;
+        case 'Escape': e.preventDefault(); if (this.drawing) this.setDrawing(false); else this.onBack?.(); break;
       }
     };
 
@@ -597,6 +738,17 @@ export class Viewer {
     document.getElementById('v-back').addEventListener('click', () => this.onBack?.());
     document.getElementById('v-prev').addEventListener('click', () => this.goTo(this.page - 1, 'top'));
     document.getElementById('v-next').addEventListener('click', () => this.goTo(this.page + 1, 'top'));
+    document.getElementById('v-draw').addEventListener('click', () => this.setDrawing(true));
+    for (const b of this.drawBar.querySelectorAll('[data-tool]')) {
+      b.addEventListener('click', () => this.setTool(b.dataset.tool));
+    }
+    document.getElementById('d-undo').addEventListener('click', () => this.notes.undo());
+    document.getElementById('d-clear').addEventListener('click', () => {
+      if (this.notes.strokes.length && confirm('Poistetaanko kaikki tämän sivun merkinnät?')) this.notes.clearPage();
+    });
+    document.getElementById('d-prev').addEventListener('click', () => this.prev());
+    document.getElementById('d-next').addEventListener('click', () => this.next());
+    document.getElementById('d-done').addEventListener('click', () => this.setDrawing(false));
     document.getElementById('v-zoom-out').addEventListener('click', () => this.zoomBy(1 / ZOOM_STEP));
     document.getElementById('v-zoom-in').addEventListener('click', () => this.zoomBy(ZOOM_STEP));
     this.zoomLabel.addEventListener('click', () => this.resetZoom());

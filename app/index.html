@@ -70,6 +70,9 @@
     <header class="v-bar v-top">
       <button class="v-btn" id="v-back" aria-label="Takaisin kirjastoon">‹ Kirjasto</button>
       <div class="v-title" id="v-title"></div>
+      <button class="v-btn" id="v-draw" title="Merkinnät" aria-label="Tee merkintöjä">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg>
+      </button>
       <div class="v-zoom" role="group" aria-label="Zoomaus">
         <button class="v-btn" id="v-zoom-out" aria-label="Loitonna">−</button>
         <button class="v-btn" id="v-zoom-label" title="Palauta koko sivu">100 %</button>
@@ -84,6 +87,28 @@
       <button class="v-btn" id="v-next" aria-label="Seuraava sivu">›</button>
     </footer>
     <div id="v-msg" class="v-msg" hidden></div>
+
+    <!-- Merkintätyökalut (piirtotila) -->
+    <div class="d-bar" id="d-bar" role="toolbar" aria-label="Merkinnät" hidden>
+      <button class="d-btn" data-tool="black" aria-label="Musta kynä" title="Musta kynä"><span class="swatch" style="--c:#1b1b1b"></span></button>
+      <button class="d-btn" data-tool="red" aria-label="Punainen kynä" title="Punainen kynä"><span class="swatch" style="--c:#d32f2f"></span></button>
+      <button class="d-btn" data-tool="blue" aria-label="Sininen kynä" title="Sininen kynä"><span class="swatch" style="--c:#1565c0"></span></button>
+      <button class="d-btn" data-tool="hl" aria-label="Korostus" title="Korostus"><span class="swatch hl"></span></button>
+      <button class="d-btn" data-tool="eraser" aria-label="Pyyhekumi" title="Pyyhekumi">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.24 3.56l4.95 4.94a1.5 1.5 0 0 1 0 2.12L12.4 19.4H19v2H7.83l-4.99-5a1.5 1.5 0 0 1 0-2.12L14.12 3.56a1.5 1.5 0 0 1 2.12 0zM5 15.35l4.07 4.05h.5l3.06-3.06-4.95-4.95L5 15.35z" fill="currentColor"/></svg>
+      </button>
+      <span class="d-sep"></span>
+      <button class="d-btn" id="d-undo" aria-label="Kumoa" title="Kumoa">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.5 8c-2.65 0-5.05 1-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10.5c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" fill="currentColor"/></svg>
+      </button>
+      <button class="d-btn" id="d-clear" aria-label="Poista sivun merkinnät" title="Poista sivun merkinnät">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg>
+      </button>
+      <span class="d-sep"></span>
+      <button class="d-btn d-nav" id="d-prev" aria-label="Edellinen sivu" title="Edellinen sivu">‹</button>
+      <button class="d-btn d-nav" id="d-next" aria-label="Seuraava sivu" title="Seuraava sivu">›</button>
+      <button class="d-btn d-done" id="d-done">Valmis</button>
+    </div>
   </section>
 
   <!-- ===== Muokkausikkuna ===== -->

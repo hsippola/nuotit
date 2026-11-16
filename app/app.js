@@ -300,6 +300,28 @@ function flushProgress(score) {
   if (score) return db.updateScore(score).catch(console.error);
 }
 
+// Merkinnät tallennetaan hetken kuluttua viimeisestä muutoksesta.
+let notesTimer = null;
+let notesPending = null;   // { id, pages }
+
+function saveNotesSoon(pages) {
+  if (!viewer.score) return;
+  notesPending = { id: viewer.score.id, pages };
+  clearTimeout(notesTimer);
+  notesTimer = setTimeout(flushNotes, 600);
+}
+
+function flushNotes() {
+  clearTimeout(notesTimer);
+  const p = notesPending;
+  notesPending = null;
+  if (!p) return;
+  return db.putNotes(p.id, p.pages).catch((err) => {
+    console.error(err);
+    toast('Merkintöjen tallennus epäonnistui');
+  });
+}
+
 const viewer = new Viewer({
   onPage(n) {
     if (!viewer.score) return;
@@ -311,6 +333,7 @@ const viewer = new Viewer({
     viewer.score.zoom = Math.round(z * 100) / 100;
     saveProgressSoon();
   },
+  onNotes: saveNotesSoon,
   onBack() {
     if (ROUTE.test(location.hash) && history.state?.score) {
       history.back();             // popstate sulkee katselimen
@@ -324,6 +347,7 @@ const viewer = new Viewer({
 async function openScore(id, { push = true } = {}) {
   const score = await db.getScore(id);
   const data = score && await db.getFile(id);
+  const notes = score && await db.getNotes(id).catch(() => null);
   if (!score || !data) {
     toast('Nuottia ei löytynyt');
     if (!push) history.replaceState(null, '', location.pathname + location.search);
@@ -334,7 +358,7 @@ async function openScore(id, { push = true } = {}) {
   score.lastOpened = Date.now();
   db.updateScore(score).catch(console.error);
   try {
-    await viewer.open(score, data);
+    await viewer.open(score, data, notes?.pages);
   } catch (err) {
     console.error(err);
     toast('PDF-tiedoston avaaminen epäonnistui');
@@ -346,7 +370,7 @@ async function closeViewer() {
   const score = viewer.score;
   viewer.close({ silent: true });
   document.title = 'Nuotit';
-  await flushProgress(score);
+  await Promise.all([flushProgress(score), flushNotes()]);
   if (updatePending) { location.reload(); return; }
   await refresh();
 }
@@ -405,3 +429,8 @@ if (!NATIVE && 'serviceWorker' in navigator && (location.protocol === 'https:' |
   });
   navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker:', err));
 }
+
+// Sovellus suljetaan tai siirtyy taustalle → tallennetaan merkinnät heti.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushNotes();
+});

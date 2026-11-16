@@ -12,6 +12,7 @@ const ASSETS = [
   './db.js',
   './viewer.js',
   './reorder.js',
+  './notes.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-180.png',
