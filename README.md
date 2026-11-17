@@ -11,6 +11,11 @@ Verkkoversio: https://hsippola.github.io/nuotit/
 - **Lisää nuotteja**: valitse yksi tai useampi PDF (tietokoneella myös raahaamalla).
 - **Kirjasto**: pikkukuvat, haku (nimi, säveltäjä, tunniste), järjestys ja tunnisteet
   (esim. *kevätkonsertti*) suodattimina. Kun tunniste on valittuna, uudet nuotit saavat sen automaattisesti.
+- **Kansiot**: *Uusi kansio* luo kansion (esim. konsertille). Siirrä nuotti kansioon raahaamalla
+  se kansion päälle tai valitsemalla nuotin ⋯-valikosta *Kansio*. Avoimeen kansioon lisätyt
+  nuotit menevät suoraan siihen. Kansiosta pois siirretään raahaamalla nuotti *‹ Kaikki nuotit*
+  -painikkeen päälle. *Muokkaa kansiota* nimeää kansion uudelleen tai poistaa sen (nuotteja ei
+  poisteta, vaan ne siirtyvät kansioiden ulkopuolelle). Haku etsii kaikista kansioista.
 - **Oma järjestys**: paina korttia hetki ja raahaa se uuteen paikkaan (tietokoneella raahaa hiirellä).
   Järjestys vaihtuu samalla *Oma järjestys* -tilaan. Kun haku tai tunniste on valittuna,
   näkyvät nuotit vaihtavat paikkaa keskenään ja muut pysyvät paikoillaan. Uudet nuotit tulevat loppuun.
@@ -47,7 +52,7 @@ app/                   julkaistava sovellus (verkkoversio ja Android-sovelluksen
   viewer.js            PDF-katselin: sivunvaihto, zoomaus, sivunumero
   notes.js             merkinnät (kynä, korostus, pyyhekumi, kumoa)
   reorder.js           korttien järjestäminen raahaamalla
-  db.js                IndexedDB-tallennus (nuotit, PDF-tiedostot ja merkinnät)
+  db.js                IndexedDB-tallennus (nuotit, PDF-tiedostot, merkinnät ja kansiot)
   sw.js                offline-välimuisti (uudet tiedostot lisätään sen ASSETS-listaan)
   icons/               verkkoversion kuvakkeet
   vendor/              pdf.js 4.10.38 (legacy-build vanhemmille laitteille), Apache 2.0

@@ -130,6 +130,31 @@ button, input, select { font: inherit; color: inherit; }
 html.reordering, html.reordering * { cursor: grabbing !important; }
 .lib-hint { margin-top: 4px; }
 
+/* Kansiot */
+.lib-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ico { width: 20px; height: 20px; flex: none; }
+.folder-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.folder-bar[hidden] { display: none; }
+.folder-bar h2 { order: 3; flex: 1 1 100%; margin: 4px 0 0; font-size: 1.45rem; min-width: 0; overflow-wrap: anywhere; }
+#folder-edit { margin-left: auto; }
+.folders[hidden] { display: none; }
+.folders + .grid { margin-top: 18px; }
+.folder-card {
+  display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 12px 14px;
+  border: 0; border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow);
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+  transition: transform .15s ease, outline-color .15s ease;
+}
+.folder-card svg { width: 38px; height: 38px; flex: none; color: var(--accent); }
+.folder-name { font-weight: 600; line-height: 1.25; overflow-wrap: break-word; hyphens: auto; min-width: 0; }
+.folder-count { color: var(--muted); font-size: .85rem; }
+.drop-target { outline: 3px solid var(--accent); outline-offset: 2px; transform: scale(1.04); }
+.dialog select {
+  min-height: 44px; padding: .5em .8em; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg); color: var(--text); font-weight: 400; font-size: 1rem;
+}
+
 .empty { text-align: center; color: var(--muted); padding: 60px 16px; }
 .empty svg { width: 64px; height: 64px; color: var(--border); }
 .empty h2 { color: var(--text); margin: 12px 0 4px; }
@@ -289,4 +314,6 @@ html.reordering, html.reordering * { cursor: grabbing !important; }
   .v-title { visibility: hidden; }
   #v-zoom-label { min-width: 3.8em; padding: 0 6px; }
   .d-sep { display: none; }
+  .folder-card { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .folder-card svg { width: 30px; height: 30px; }
 }

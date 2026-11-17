@@ -1,6 +1,7 @@
 // Nuottikorttien järjestäminen raahaamalla.
 // Kosketusnäytöllä kortti otetaan painamalla sitä hetken (pitkä painallus), jolloin
 // tavallinen vieritys ja napautus toimivat ennallaan. Hiirellä riittää raahaus.
+// Kortin voi myös pudottaa `[data-drop]`-kohteen (esim. kansion) päälle.
 
 const HOLD_MS = 380;      // pitkän painalluksen kesto
 const TOUCH_SLOP = 10;    // näin paljon sormi saa liikkua odotuksen aikana (muuten vieritetään)
@@ -10,10 +11,12 @@ const MAX_SCROLL = 16;    // px / ruutu
 
 /**
  * @param {HTMLElement} grid  korttien säiliö; kortit ovat `.card[data-id]`-elementtejä
- * @param {{ onDrop(ids: string[]): void }} opts  kutsutaan uudella järjestyksellä, jos se muuttui
+ * @param {{ onDrop(ids: string[]): void, onDropInto?(target: string, id: string): void }} opts
+ *   onDrop: kutsutaan uudella järjestyksellä, jos se muuttui
+ *   onDropInto: kortti pudotettiin kohteen päälle (kohteen data-drop-arvo ja kortin id)
  * @returns {{ cancel(): void, readonly active: boolean }}
  */
-export function enableReorder(grid, { onDrop }) {
+export function enableReorder(grid, { onDrop, onDropInto }) {
   let pending = null;   // { card, x, y, touchId?, mouse?, timer? }
   let drag = null;      // { card, ghost, offX, offY, x, y, before, touchId?, mouse?, raf }
   let swallowClick = false;
@@ -47,7 +50,7 @@ export function enableReorder(grid, { onDrop }) {
     document.body.append(ghost);
     card.classList.add('drag-placeholder');
     document.documentElement.classList.add('reordering');
-    drag = { card, ghost, offX, offY, x, y, before: ids(), raf: 0, ...extra };
+    drag = { card, ghost, offX, offY, x, y, before: ids(), raf: 0, target: null, ...extra };
     placeGhost();
     try { navigator.vibrate?.(15); } catch { /* ei värinää */ }
     drag.raf = requestAnimationFrame(tick);
@@ -81,7 +84,19 @@ export function enableReorder(grid, { onDrop }) {
 
   // Siirtää paikanpitäjän sen kortin kohdalle, jonka päällä sormi on. Paikat lasketaan
   // asettelun mukaan (offsetLeft/Top), joten liikkeessä olevat kortit eivät hämää.
+  function setTarget(el) {
+    if (drag.target === el) return;
+    drag.target?.classList.remove('drop-target');
+    drag.target = el;
+    el?.classList.add('drop-target');
+  }
+
   function reposition() {
+    // Pudotuskohteen (kansion) päällä korttien järjestys ei muutu.
+    const hit = onDropInto && document.elementFromPoint(drag.x, drag.y)?.closest('[data-drop]');
+    setTarget(hit || null);
+    if (hit) return;
+
     const g = grid.getBoundingClientRect();
     const x = drag.x - g.left;
     const y = drag.y - g.top;
@@ -122,10 +137,25 @@ export function enableReorder(grid, { onDrop }) {
 
   function end({ cancel = false } = {}) {
     if (!drag) return;
-    const { card, ghost, before } = drag;
+    const { card, ghost, before, target } = drag;
     cancelAnimationFrame(drag.raf);
+    target?.classList.remove('drop-target');
     drag = null;
     document.documentElement.classList.remove('reordering');
+
+    if (target && !cancel) {
+      // Pudotettiin kohteen päälle: kortti "katoaa" kohteeseen.
+      const t = target.getBoundingClientRect();
+      const done = () => { ghost.remove(); card.classList.remove('drag-placeholder'); };
+      const anim = ghost.animate?.(
+        [{ transform: ghost.style.transform, opacity: 1 },
+          { transform: `translate3d(${t.left + t.width / 2 - 20}px, ${t.top + t.height / 2 - 20}px, 0) scale(.15)`, opacity: 0 }],
+        { duration: 200, easing: 'ease-in', fill: 'forwards' },
+      );
+      if (anim) anim.onfinish = anim.oncancel = done; else done();
+      onDropInto(target.dataset.drop, card.dataset.id);
+      return;
+    }
 
     if (cancel) {
       const byId = new Map(cards().map((c) => [c.dataset.id, c]));

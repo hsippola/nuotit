@@ -2,7 +2,7 @@
 // erillisissä varastoissa, jotta kirjaston listaus pysyy nopeana.
 
 const DB_NAME = 'nuotit';
-const DB_VERSION = 2;   // 2: merkinnät (notes)
+const DB_VERSION = 3;   // 2: merkinnät (notes), 3: kansiot (folders)
 let dbPromise;
 
 function openDb() {
@@ -14,6 +14,7 @@ function openDb() {
         if (!db.objectStoreNames.contains('scores')) db.createObjectStore('scores', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('folders')) db.createObjectStore('folders', { keyPath: 'id' });
       };
       req.onsuccess = () => {
         const db = req.result;
@@ -99,5 +100,31 @@ export async function putNotes(id, pages) {
   const tx = db.transaction('notes', 'readwrite');
   if (Object.keys(pages).length) tx.objectStore('notes').put({ id, pages });
   else tx.objectStore('notes').delete(id);
+  return completed(tx);
+}
+
+// ---------- Kansiot: { id, name, createdAt } ----------
+
+export async function listFolders() {
+  const db = await openDb();
+  return asPromise(db.transaction('folders').objectStore('folders').getAll());
+}
+
+export async function putFolder(folder) {
+  const db = await openDb();
+  const tx = db.transaction('folders', 'readwrite');
+  tx.objectStore('folders').put(folder);
+  return completed(tx);
+}
+
+/** Poistaa kansion; sen nuotit siirtyvät kansioiden ulkopuolelle (nuotteja ei poisteta). */
+export async function deleteFolder(id, scoresInFolder) {
+  const db = await openDb();
+  const tx = db.transaction(['folders', 'scores'], 'readwrite');
+  tx.objectStore('folders').delete(id);
+  for (const s of scoresInFolder) {
+    delete s.folder;
+    tx.objectStore('scores').put(s);
+  }
   return completed(tx);
 }
